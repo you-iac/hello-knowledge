@@ -427,6 +427,21 @@ input {
   color: var(--red-dark);
 }
 
+.word-link {
+  position: relative;
+  display: inline;
+  border-bottom: 2px solid rgba(200, 33, 29, 0.34);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  cursor: pointer;
+}
+
+.word-link:hover {
+  color: var(--white);
+  background: var(--red);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
 .answer code {
   border: 2px solid var(--line);
   padding: 0 4px;

@@ -68,7 +68,24 @@
     try {
       const prompt = buildPrompt(term, parent, keyword);
       const response = await callModel(config, prompt);
-      state.cards[loadingIndex] = normalizeCard(response, term, parent, keyword);
+      const card = normalizeCard(response, term, parent, keyword);
+      card.annotating = true;
+      state.cards[loadingIndex] = card;
+      renderCards();
+
+      try {
+        const termsResponse = await callModel(config, buildTermPrompt(card, parent, keyword));
+        card.inlineTerms = normalizeInlineTerms(termsResponse, card);
+      } catch (termError) {
+        card.inlineTerms = card.keywords.map((item) => ({
+          text: item.text,
+          query: item.query,
+          reason: item.reason || "模型推荐关键词"
+        }));
+        card.termNote = `正文术语标注失败，已退回到推荐关键词：${termError.message || "未知错误"}`;
+      }
+
+      card.annotating = false;
       renderCards();
     } catch (error) {
       state.cards[loadingIndex] = {
@@ -151,6 +168,43 @@
       "- 优先选择会影响理解、容易打断主线、但值得旁路查看的概念。",
       "- 不要把普通动词、空泛词、整句描述当关键词。",
       "- 如果有父概念，query 要体现“在父概念语境下解释这个关键词”。"
+    ].join("\n");
+  }
+
+  function buildTermPrompt(card, parent, keyword) {
+    const parentLines = parent ? [
+      `父概念：${parent.title}`,
+      `父概念语境：用户从父概念中展开「${keyword ? keyword.text : card.title}」。`
+    ].join("\n") : "这是主概念，没有父概念。";
+
+    return [
+      "你是一个中文技术文本术语标注器。",
+      "任务：从正文中抽取值得继续展开的术语短语，供前端把正文中的对应文字变成可点击入口。",
+      "",
+      parentLines,
+      "",
+      `当前卡片标题：${card.title}`,
+      `当前卡片类型：${card.type}`,
+      "",
+      "正文：",
+      card.answer,
+      "",
+      "请只返回 JSON，不要返回 Markdown 代码块，不要添加 JSON 外的说明。",
+      "JSON 格式：",
+      "{",
+      '  "terms": [',
+      '    { "text": "必须是正文中原样出现的连续短语", "query": "带上下文的后续查询意图", "reason": "为什么值得展开" }',
+      "  ]",
+      "}",
+      "",
+      "抽取规则：",
+      "- 抽取 12 到 30 个术语，宁可少而准。",
+      "- text 必须是正文中原样出现的连续短语，不要改写，不要新增正文里没有的词。",
+      "- 优先抽取完整概念短语，例如“进程间通信 (IPC)”“进程控制块 (PCB)”“上下文切换”。",
+      "- 不要把完整短语拆成碎片，例如不要把“进程间通信 (IPC)”拆成“进程”“通信”“IPC”。",
+      "- 不要抽取普通动词、虚词、单个泛化字词。",
+      "- 术语之间如果包含关系，保留最长、最完整的那个短语。",
+      "- query 要说明在当前卡片语境下解释该术语。"
     ].join("\n");
   }
 
@@ -240,9 +294,30 @@
         .map((item) => normalizeKeyword(item))
         .filter((item) => item.text)
         .slice(0, 12),
+      inlineTerms: [],
       parentTitle: parent ? parent.title : "",
       selectedFromParent: keyword ? keyword.text : ""
     };
+  }
+
+  function normalizeInlineTerms(raw, card) {
+    const terms = Array.isArray(raw.terms) ? raw.terms : [];
+    const answer = card.answer || "";
+    const seen = new Set();
+
+    return terms
+      .map((item) => normalizeKeyword(item))
+      .filter((item) => item.text && answer.includes(item.text))
+      .sort((a, b) => b.text.length - a.text.length)
+      .filter((item) => {
+        const key = item.text;
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 40);
   }
 
   function normalizeKeyword(item) {
@@ -266,11 +341,25 @@
 
     state.cards.forEach((card, index) => {
       const node = els.cardTemplate.content.firstElementChild.cloneNode(true);
-      node.classList.toggle("loading", Boolean(card.loading));
+      node.classList.toggle("loading", Boolean(card.loading || card.annotating));
       node.classList.toggle("error", Boolean(card.error));
       node.querySelector(".card-kind").textContent = `${card.type || "概念"} / L${index + 1}`;
       node.querySelector("h2").textContent = card.title;
-      node.querySelector(".answer").innerHTML = renderMarkdownLite(card.answer);
+      const answer = node.querySelector(".answer");
+      answer.innerHTML = renderMarkdownLite(card.answer, card.inlineTerms || []);
+      answer.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target : event.target.parentElement;
+        const word = target ? target.closest(".word-link") : null;
+        if (!word || card.loading || card.annotating) {
+          return;
+        }
+        const text = word.dataset.word;
+        requestConcept(text, index, {
+          text,
+          query: word.dataset.query || `在「${card.title}」语境下解释「${text}」`,
+          reason: word.dataset.reason || "用户从正文术语中旁路展开"
+        });
+      });
 
       const closeButton = node.querySelector(".remove-card");
       closeButton.addEventListener("click", () => {
@@ -281,6 +370,8 @@
       const keywordWrap = node.querySelector(".keywords");
       if (card.loading) {
         keywordWrap.innerHTML = `<span class="notice">等待模型返回关键词...</span>`;
+      } else if (card.annotating) {
+        keywordWrap.innerHTML = `<span class="notice">正在用模型识别正文术语...</span>`;
       } else if (!card.keywords.length) {
         keywordWrap.innerHTML = `<span class="notice">没有可展开关键词。</span>`;
       } else {
@@ -298,7 +389,9 @@
       }
 
       const note = node.querySelector(".context-note");
-      note.textContent = card.parentTitle
+      note.textContent = card.termNote
+        ? card.termNote
+        : card.parentTitle
         ? `从「${card.parentTitle}」中的「${card.selectedFromParent || card.title}」展开`
         : "主概念";
 
@@ -407,9 +500,77 @@
   }
 
   function renderInline(text) {
-    return escapeHtml(text)
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/`([^`]+)`/g, "<code>$1</code>");
+    const raw = String(text || "");
+    const pattern = /(`[^`]+`|\*\*[^*]+\*\*)/g;
+    let html = "";
+    let cursor = 0;
+    let match;
+
+    while ((match = pattern.exec(raw)) !== null) {
+      html += wrapExpandableWords(raw.slice(cursor, match.index));
+
+      const token = match[0];
+      if (token.startsWith("`")) {
+        html += `<code>${escapeHtml(token.slice(1, -1))}</code>`;
+      } else {
+        html += `<strong>${wrapExpandableWords(token.slice(2, -2))}</strong>`;
+      }
+
+      cursor = pattern.lastIndex;
+    }
+
+    html += wrapExpandableWords(raw.slice(cursor));
+    return html;
+  }
+
+  function wrapExpandableWords(text) {
+    return segmentWords(text)
+      .map((part) => {
+        if (!part.expandable) {
+          return escapeHtml(part.text);
+        }
+
+        return `<span class="word-link" data-word="${escapeAttr(part.text)}" title="展开：${escapeAttr(part.text)}">${escapeHtml(part.text)}</span>`;
+      })
+      .join("");
+  }
+
+  function segmentWords(text) {
+    const raw = String(text || "");
+    if (!raw) {
+      return [];
+    }
+
+    if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+      const segmenter = new Intl.Segmenter("zh-CN", { granularity: "word" });
+      return Array.from(segmenter.segment(raw), (item) => ({
+        text: item.segment,
+        expandable: Boolean(item.isWordLike && item.segment.trim())
+      }));
+    }
+
+    const parts = [];
+    const pattern = /([\p{Script=Han}]+|[A-Za-z][A-Za-z0-9_+-]*|\d+(?:\.\d+)?)/gu;
+    let cursor = 0;
+    let match;
+
+    while ((match = pattern.exec(raw)) !== null) {
+      if (match.index > cursor) {
+        parts.push({ text: raw.slice(cursor, match.index), expandable: false });
+      }
+      parts.push({ text: match[0], expandable: true });
+      cursor = pattern.lastIndex;
+    }
+
+    if (cursor < raw.length) {
+      parts.push({ text: raw.slice(cursor), expandable: false });
+    }
+
+    return parts;
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value).replace(/`/g, "&#096;");
   }
 
   function escapeHtml(value) {
