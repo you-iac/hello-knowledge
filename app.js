@@ -442,22 +442,23 @@
     renderCards();
   }
 
-  function renderMarkdownLite(markdown) {
+  function renderMarkdownLite(markdown, terms) {
     const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+    const termList = Array.isArray(terms) ? terms : [];
     let html = "";
     let paragraph = [];
     let list = [];
 
     const flushParagraph = () => {
       if (paragraph.length) {
-        html += `<p>${renderInline(paragraph.join(" "))}</p>`;
+        html += `<p>${renderInline(paragraph.join(" "), termList)}</p>`;
         paragraph = [];
       }
     };
 
     const flushList = () => {
       if (list.length) {
-        html += `<ul>${list.map((item) => `<li>${renderInline(item)}</li>`).join("")}</ul>`;
+        html += `<ul>${list.map((item) => `<li>${renderInline(item, termList)}</li>`).join("")}</ul>`;
         list = [];
       }
     };
@@ -473,14 +474,14 @@
       if (trimmed.startsWith("### ")) {
         flushParagraph();
         flushList();
-        html += `<h4>${renderInline(trimmed.slice(4))}</h4>`;
+        html += `<h4>${renderInline(trimmed.slice(4), termList)}</h4>`;
         return;
       }
 
       if (trimmed.startsWith("## ")) {
         flushParagraph();
         flushList();
-        html += `<h3>${renderInline(trimmed.slice(3))}</h3>`;
+        html += `<h3>${renderInline(trimmed.slice(3), termList)}</h3>`;
         return;
       }
 
@@ -499,7 +500,7 @@
     return html || "<p></p>";
   }
 
-  function renderInline(text) {
+  function renderInline(text, terms) {
     const raw = String(text || "");
     const pattern = /(`[^`]+`|\*\*[^*]+\*\*)/g;
     let html = "";
@@ -507,66 +508,52 @@
     let match;
 
     while ((match = pattern.exec(raw)) !== null) {
-      html += wrapExpandableWords(raw.slice(cursor, match.index));
+      html += wrapTermMatches(raw.slice(cursor, match.index), terms);
 
       const token = match[0];
       if (token.startsWith("`")) {
         html += `<code>${escapeHtml(token.slice(1, -1))}</code>`;
       } else {
-        html += `<strong>${wrapExpandableWords(token.slice(2, -2))}</strong>`;
+        html += `<strong>${wrapTermMatches(token.slice(2, -2), terms)}</strong>`;
       }
 
       cursor = pattern.lastIndex;
     }
 
-    html += wrapExpandableWords(raw.slice(cursor));
+    html += wrapTermMatches(raw.slice(cursor), terms);
     return html;
   }
 
-  function wrapExpandableWords(text) {
-    return segmentWords(text)
-      .map((part) => {
-        if (!part.expandable) {
-          return escapeHtml(part.text);
-        }
-
-        return `<span class="word-link" data-word="${escapeAttr(part.text)}" title="展开：${escapeAttr(part.text)}">${escapeHtml(part.text)}</span>`;
-      })
-      .join("");
-  }
-
-  function segmentWords(text) {
+  function wrapTermMatches(text, terms) {
     const raw = String(text || "");
-    if (!raw) {
-      return [];
+    if (!raw || !terms || !terms.length) {
+      return escapeHtml(raw);
     }
 
-    if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
-      const segmenter = new Intl.Segmenter("zh-CN", { granularity: "word" });
-      return Array.from(segmenter.segment(raw), (item) => ({
-        text: item.segment,
-        expandable: Boolean(item.isWordLike && item.segment.trim())
-      }));
-    }
-
-    const parts = [];
-    const pattern = /([\p{Script=Han}]+|[A-Za-z][A-Za-z0-9_+-]*|\d+(?:\.\d+)?)/gu;
+    let html = "";
     let cursor = 0;
-    let match;
 
-    while ((match = pattern.exec(raw)) !== null) {
-      if (match.index > cursor) {
-        parts.push({ text: raw.slice(cursor, match.index), expandable: false });
+    while (cursor < raw.length) {
+      const matched = terms.find((term) => raw.startsWith(term.text, cursor));
+      if (!matched) {
+        html += escapeHtml(raw[cursor]);
+        cursor += 1;
+        continue;
       }
-      parts.push({ text: match[0], expandable: true });
-      cursor = pattern.lastIndex;
+
+      html += [
+        `<span class="word-link"`,
+        ` data-word="${escapeAttr(matched.text)}"`,
+        ` data-query="${escapeAttr(matched.query || matched.text)}"`,
+        ` data-reason="${escapeAttr(matched.reason || "")}"`,
+        ` title="展开：${escapeAttr(matched.text)}">`,
+        escapeHtml(matched.text),
+        "</span>"
+      ].join("");
+      cursor += matched.text.length;
     }
 
-    if (cursor < raw.length) {
-      parts.push({ text: raw.slice(cursor), expandable: false });
-    }
-
-    return parts;
+    return html;
   }
 
   function escapeAttr(value) {
