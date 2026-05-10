@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>概念旁路查询</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">!</div>
+      <div>
+        <div class="brand-title">概念旁路查询</div>
+        <div class="brand-subtitle">大模型实时生成 / 无本地知识库 / 无缓存</div>
+      </div>
+    </div>
+
+    <form id="queryForm" class="query-form">
+      <input id="queryInput" type="search" autocomplete="off" placeholder="输入主概念，例如 mmap、页表、动态库">
+      <button type="submit">生成</button>
+    </form>
+  </header>
+
+  <section class="config-panel" aria-label="模型配置">
+    <label>
+      <span>API</span>
+      <input id="endpointInput" spellcheck="false" value="https://api.deepseek.com/chat/completions">
+    </label>
+    <label>
+      <span>模型</span>
+      <input id="modelInput" spellcheck="false" placeholder="deepseek-v4-flash">
+    </label>
+    <label class="key-field">
+      <span>Key</span>
+      <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="仅在当前页面内存中使用">
+    </label>
+    <button id="clearButton" type="button">清空</button>
+  </section>
+
+  <main class="workspace">
+    <aside class="path-panel">
+      <div class="panel-label">PATH</div>
+      <h2>理解路径</h2>
+      <ol id="pathList" class="path-list"></ol>
+    </aside>
+
+    <section class="cards-area">
+      <div id="emptyState" class="empty-state">
+        <div class="poster-index">01</div>
+        <h1>问一个概念，沿关键词旁路展开</h1>
+        <p>模型自由生成解释。页面只负责把主线固定住，并把回答里的关键术语变成下一张卡。</p>
+      </div>
+      <div id="cards" class="cards"></div>
+    </section>
+  </main>
+
+  <template id="cardTemplate">
+    <article class="concept-card">
+      <header>
+        <div>
+          <span class="card-kind"></span>
+          <h2></h2>
+        </div>
+        <button class="remove-card" type="button" title="关闭">×</button>
+      </header>
+      <div class="answer"></div>
+      <div class="keywords-block">
+        <h3>关键词</h3>
+        <div class="keywords"></div>
+      </div>
+      <div class="context-note"></div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
