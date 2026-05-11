@@ -2,6 +2,12 @@
   "use strict";
 
   const DEFAULT_MODEL = "deepseek-v4-flash";
+  const STORAGE_KEYS = {
+    endpoint: "hello-knowledge.endpoint",
+    model: "hello-knowledge.model",
+    rememberKey: "hello-knowledge.remember-key",
+    apiKey: "hello-knowledge.api-key"
+  };
 
   const state = {
     cards: []
@@ -13,6 +19,7 @@
     endpointInput: document.getElementById("endpointInput"),
     modelInput: document.getElementById("modelInput"),
     apiKeyInput: document.getElementById("apiKeyInput"),
+    rememberKeyInput: document.getElementById("rememberKeyInput"),
     clearButton: document.getElementById("clearButton"),
     cards: document.getElementById("cards"),
     emptyState: document.getElementById("emptyState"),
@@ -23,7 +30,7 @@
   init();
 
   function init() {
-    els.modelInput.value = DEFAULT_MODEL;
+    restoreConfig();
 
     els.queryForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -41,7 +48,69 @@
       els.queryInput.focus();
     });
 
+    els.endpointInput.addEventListener("input", saveConfig);
+    els.modelInput.addEventListener("input", saveConfig);
+    els.apiKeyInput.addEventListener("input", saveConfig);
+    els.rememberKeyInput.addEventListener("change", saveConfig);
+
     updateEmptyState();
+  }
+
+  function restoreConfig() {
+    const savedEndpoint = readStorage(STORAGE_KEYS.endpoint);
+    const savedModel = readStorage(STORAGE_KEYS.model);
+    const rememberKey = readStorage(STORAGE_KEYS.rememberKey) === "true";
+
+    if (savedEndpoint) {
+      els.endpointInput.value = savedEndpoint;
+    }
+    els.modelInput.value = savedModel || DEFAULT_MODEL;
+    els.rememberKeyInput.checked = rememberKey;
+
+    if (rememberKey) {
+      const savedKey = readStorage(STORAGE_KEYS.apiKey);
+      if (savedKey) {
+        els.apiKeyInput.value = savedKey;
+      }
+    } else {
+      removeStorage(STORAGE_KEYS.apiKey);
+    }
+  }
+
+  function saveConfig() {
+    writeStorage(STORAGE_KEYS.endpoint, els.endpointInput.value.trim());
+    writeStorage(STORAGE_KEYS.model, els.modelInput.value.trim());
+    writeStorage(STORAGE_KEYS.rememberKey, els.rememberKeyInput.checked ? "true" : "false");
+
+    if (els.rememberKeyInput.checked && els.apiKeyInput.value.trim()) {
+      writeStorage(STORAGE_KEYS.apiKey, els.apiKeyInput.value.trim());
+    } else {
+      removeStorage(STORAGE_KEYS.apiKey);
+    }
+  }
+
+  function readStorage(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function writeStorage(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (error) {
+      // localStorage can be unavailable in private or locked-down browser contexts.
+    }
+  }
+
+  function removeStorage(key) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch (error) {
+      // Ignore storage cleanup failures for the same reason.
+    }
   }
 
   async function requestConcept(term, parentIndex, keyword) {
@@ -119,7 +188,7 @@
       return { ok: false, message: "请填写模型名。" };
     }
     if (!apiKey) {
-      return { ok: false, message: "请填写 API Key。它只会保存在当前页面内存里。" };
+      return { ok: false, message: "请填写 API Key。勾选“记住 Key”后，下次打开本机浏览器会自动填充。" };
     }
 
     return { ok: true, endpoint, model, apiKey };
@@ -463,41 +532,147 @@
       }
     };
 
-    lines.forEach((line) => {
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
       const trimmed = line.trim();
       if (!trimmed) {
         flushParagraph();
         flushList();
-        return;
+        continue;
+      }
+
+      if (isTableStart(lines, index)) {
+        flushParagraph();
+        flushList();
+        const table = collectTable(lines, index);
+        html += renderTable(table.header, table.rows, termList);
+        index = table.endIndex;
+        continue;
       }
 
       if (trimmed.startsWith("### ")) {
         flushParagraph();
         flushList();
         html += `<h4>${renderInline(trimmed.slice(4), termList)}</h4>`;
-        return;
+        continue;
       }
 
       if (trimmed.startsWith("## ")) {
         flushParagraph();
         flushList();
         html += `<h3>${renderInline(trimmed.slice(3), termList)}</h3>`;
-        return;
+        continue;
       }
 
       if (/^[-*]\s+/.test(trimmed)) {
         flushParagraph();
         list.push(trimmed.replace(/^[-*]\s+/, ""));
-        return;
+        continue;
       }
 
       flushList();
       paragraph.push(trimmed);
-    });
+    }
 
     flushParagraph();
     flushList();
     return html || "<p></p>";
+  }
+
+  function isTableStart(lines, index) {
+    const current = lines[index] ? lines[index].trim() : "";
+    const next = lines[index + 1] ? lines[index + 1].trim() : "";
+
+    return splitTableRow(current).length >= 2 && isTableDivider(next);
+  }
+
+  function isTableDivider(line) {
+    const cells = splitTableRow(line);
+
+    return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+  }
+
+  function collectTable(lines, startIndex) {
+    const header = splitTableRow(lines[startIndex].trim());
+    const rows = [];
+    let index = startIndex + 2;
+
+    while (index < lines.length) {
+      const trimmed = lines[index].trim();
+      if (!trimmed || splitTableRow(trimmed).length < 2 || isTableDivider(trimmed)) {
+        break;
+      }
+
+      rows.push(normalizeTableRow(splitTableRow(trimmed), header.length));
+      index += 1;
+    }
+
+    return {
+      header: normalizeTableRow(header, header.length),
+      rows,
+      endIndex: index - 1
+    };
+  }
+
+  function normalizeTableRow(cells, targetLength) {
+    const normalized = cells.slice(0, targetLength);
+    while (normalized.length < targetLength) {
+      normalized.push("");
+    }
+    return normalized;
+  }
+
+  function splitTableRow(line) {
+    const raw = String(line || "").trim();
+    const cells = [];
+    let cell = "";
+    let inCode = false;
+
+    for (let index = 0; index < raw.length; index += 1) {
+      const char = raw[index];
+      const previous = raw[index - 1];
+
+      if (char === "`" && previous !== "\\") {
+        inCode = !inCode;
+      }
+
+      if (char === "|" && !inCode && previous !== "\\") {
+        cells.push(cell.trim().replace(/\\\|/g, "|"));
+        cell = "";
+        continue;
+      }
+
+      cell += char;
+    }
+
+    cells.push(cell.trim().replace(/\\\|/g, "|"));
+
+    if (cells[0] === "") {
+      cells.shift();
+    }
+    if (cells[cells.length - 1] === "") {
+      cells.pop();
+    }
+
+    return cells;
+  }
+
+  function renderTable(header, rows, terms) {
+    const head = header
+      .map((cell) => `<th>${renderInline(cell, terms)}</th>`)
+      .join("");
+    const body = rows
+      .map((row) => `<tr>${row.map((cell) => `<td>${renderInline(cell, terms)}</td>`).join("")}</tr>`)
+      .join("");
+
+    return [
+      '<div class="table-wrap">',
+      "<table>",
+      `<thead><tr>${head}</tr></thead>`,
+      `<tbody>${body}</tbody>`,
+      "</table>",
+      "</div>"
+    ].join("");
   }
 
   function renderInline(text, terms) {

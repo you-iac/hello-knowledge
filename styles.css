@@ -171,7 +171,7 @@ input {
 
 .config-panel {
   display: grid;
-  grid-template-columns: minmax(260px, 1.3fr) minmax(180px, .7fr) minmax(220px, .8fr) 94px;
+  grid-template-columns: minmax(260px, 1.3fr) minmax(180px, .7fr) minmax(220px, .8fr) 120px 94px;
   gap: 12px;
   align-items: end;
   padding: 14px 18px 16px;
@@ -185,6 +185,30 @@ input {
   display: grid;
   gap: 5px;
   min-width: 0;
+}
+
+.remember-field {
+  display: flex !important;
+  gap: 8px !important;
+  align-items: center;
+  min-height: 42px;
+  border: 3px solid var(--line);
+  padding: 0 10px;
+  background: var(--paper-2);
+  box-shadow: inset 0 -5px 0 rgba(31, 91, 115, 0.16);
+  cursor: pointer;
+}
+
+.remember-field input {
+  flex: 0 0 auto;
+  width: 18px;
+  min-height: 18px;
+  height: 18px;
+  margin: 0;
+  border: 3px solid var(--line);
+  box-shadow: none;
+  cursor: pointer;
+  accent-color: var(--red);
 }
 
 .config-panel span,
@@ -425,6 +449,43 @@ input {
 
 .answer strong {
   color: var(--red-dark);
+}
+
+.table-wrap {
+  margin: 0 0 14px;
+  overflow-x: auto;
+  border: 3px solid var(--line);
+  background: var(--white);
+}
+
+.answer table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.answer th,
+.answer td {
+  border: 2px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.answer th {
+  color: var(--white);
+  background: var(--ink);
+  font-weight: 900;
+}
+
+.answer td {
+  background: rgba(255, 248, 231, 0.72);
+}
+
+.answer tr:nth-child(even) td {
+  background: rgba(239, 226, 198, 0.8);
 }
 
 .word-link {

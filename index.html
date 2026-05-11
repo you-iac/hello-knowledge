@@ -33,7 +33,11 @@
     </label>
     <label class="key-field">
       <span>Key</span>
-      <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="仅在当前页面内存中使用">
+      <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="勾选记住 Key 后保存到本机浏览器">
+    </label>
+    <label class="remember-field" title="勾选后会把 API Key 保存到当前浏览器的 localStorage">
+      <input id="rememberKeyInput" type="checkbox">
+      <span>记住 Key</span>
     </label>
     <button id="clearButton" type="button">清空</button>
   </section>
